@@ -1,0 +1,84 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: dsb_postgres
+    environment:
+      POSTGRES_USER: hillmantam
+      POSTGRES_PASSWORD: ""
+      POSTGRES_DB: pprfs_vetting
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "6432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hillmantam -d pprfs_vetting"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: dsb_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: hillman2000hk/dsb-backend:latest
+    container_name: dsb_backend
+    env_file: .env
+    environment:
+      # Override to use container service names instead of localhost
+      DATABASE_URL: postgresql://hillmantam@postgres:5432/pprfs_vetting
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "${BACKEND_PORT:-8043}:8043"
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  celery:
+    image: hillman2000hk/dsb-backend:latest
+    container_name: dsb_celery
+    command: celery -A celery_app worker --loglevel=info -c 2
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://hillmantam@postgres:5432/pprfs_vetting
+      REDIS_URL: redis://redis:6379/0
+    volumes:
+      - uploads_data:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: hillman2000hk/dsb-frontend:latest
+    container_name: dsb_frontend
+    env_file: .env
+    ports:
+      - "${PORT:-7676}:7676"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  redis_data:
+  uploads_data:

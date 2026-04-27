@@ -25,10 +25,10 @@ mkdir dsb-poc && cd dsb-poc
 
 ```bash
 # docker-compose.yml
-curl -O https://raw.githubusercontent.com/hillman2000hk/dsb-poc/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/OctHex2016/dsb-poc/main/docker-compose.yml
 
 # .env template
-curl -O https://raw.githubusercontent.com/hillman2000hk/dsb-poc/main/.env.example
+curl -O https://raw.githubusercontent.com/OctHex2016/dsb-poc/main/.env.example
 cp .env.example .env
 ```
 

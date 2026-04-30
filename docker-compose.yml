@@ -72,8 +72,16 @@ services:
     image: hillman2000hk/dsb-frontend:latest
     container_name: dsb_frontend
     env_file: .env
+    environment:
+      # Always listen on 7676 inside the container regardless of what PORT is
+      # set to in .env (which controls only the host-side mapping below).
+      PORT: "7676"
+      HOSTNAME: "0.0.0.0"
+      # Server-side env var consumed by next.config.js rewrites at runtime.
+      # Uses Docker service name — works inside the container network.
+      BACKEND_URL: "http://backend:${BACKEND_PORT:-8043}"
     ports:
-      - "${PORT:-7676}:7676"
+      - "${FRONTEND_PORT:-7676}:7676"
     depends_on:
       - backend
     restart: unless-stopped

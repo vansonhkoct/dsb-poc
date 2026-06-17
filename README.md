@@ -204,6 +204,7 @@ docker pull vansonhk/dsb-frontend:3rd-round
 | LLM errors in job output | Verify `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_VISION_BASE_URL`, `LLM_VISION_API_KEY`, and model names in `.env`. |
 | Port already in use | Change `FRONTEND_PORT`, `BACKEND_PORT`, `POSTGRES_PORT`, or `REDIS_PORT` in `.env` and re-run `docker compose up -d`. |
 | DB connection refused | Run `docker compose ps`; the `postgres` service must be healthy before backend starts. |
+| Repeat install fails with `container name "/dsb_redis" is already in use` or similar | Remove stale stopped containers from an older local run: `docker rm dsb_frontend dsb_backend dsb_celery dsb_redis dsb_postgres`, then run `docker compose up -d` again. This does not delete Docker volumes or uploaded data. |
 
 ---
 

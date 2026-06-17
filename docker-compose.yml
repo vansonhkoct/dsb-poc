@@ -1,5 +1,3 @@
-version: "3.9"
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -10,7 +8,7 @@ services:
       POSTGRES_DB: pprfs_vetting
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
-      - "6432:5432"
+      - "${POSTGRES_PORT:-6432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -23,7 +21,7 @@ services:
     image: redis:7-alpine
     container_name: dsb_redis
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -33,11 +31,10 @@ services:
       retries: 5
 
   backend:
-    image: hillman2000hk/dsb-backend:latest
+    image: vansonhk/dsb-backend:3rd-round
     container_name: dsb_backend
     env_file: .env
     environment:
-      # Override to use container service names instead of localhost
       DATABASE_URL: postgresql://hillmantam@postgres:5432/pprfs_vetting
       REDIS_URL: redis://redis:6379/0
     ports:
@@ -52,7 +49,7 @@ services:
     restart: unless-stopped
 
   celery:
-    image: hillman2000hk/dsb-backend:latest
+    image: vansonhk/dsb-backend:3rd-round
     container_name: dsb_celery
     command: celery -A celery_app worker --loglevel=info -c 2
     env_file: .env
@@ -69,17 +66,13 @@ services:
     restart: unless-stopped
 
   frontend:
-    image: hillman2000hk/dsb-frontend:latest
+    image: vansonhk/dsb-frontend:3rd-round
     container_name: dsb_frontend
     env_file: .env
     environment:
-      # Always listen on 7676 inside the container regardless of what PORT is
-      # set to in .env (which controls only the host-side mapping below).
+      BACKEND_URL: http://backend:8043
       PORT: "7676"
       HOSTNAME: "0.0.0.0"
-      # Server-side env var consumed by next.config.js rewrites at runtime.
-      # Uses Docker service name — works inside the container network.
-      BACKEND_URL: "http://backend:${BACKEND_PORT:-8043}"
     ports:
       - "${FRONTEND_PORT:-7676}:7676"
     depends_on:

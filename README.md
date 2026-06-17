@@ -25,10 +25,10 @@ mkdir dsb-poc && cd dsb-poc
 
 ```bash
 # docker-compose.yml
-curl -O https://raw.githubusercontent.com/OctHex2016/dsb-poc/main/docker-compose.yml
+curl -O https://raw.githubusercontent.com/vansonhkoct/dsb-poc/main/docker-compose.yml
 
 # .env template
-curl -O https://raw.githubusercontent.com/OctHex2016/dsb-poc/main/.env.example
+curl -O https://raw.githubusercontent.com/vansonhkoct/dsb-poc/main/.env.example
 cp .env.example .env
 ```
 
@@ -39,70 +39,83 @@ cp .env.example .env
 Open `.env` in any text editor and fill in the required values:
 
 ```dotenv
-# ─── LLM API (omlx) ─────────────────────────────────────────────────────────
-# omlx serves large text + vision models via an OpenAI-compatible API
+# LLM API for text-only tasks
 LLM_BASE_URL=https://your-omlx-server/v1
 LLM_API_KEY=your-omlx-api-key
+LLM_TEXT_MODEL=gpt-oss-120b-MXFP4-Q8
 
-# Model names — must match the model IDs listed in your omlx server
-LLM_TEXT_MODEL=gpt-oss-120b-MXFP4-Q8          # text-only tasks
-LLM_SMALL_VISION_MODEL=Qwen3.6-35B-A3B-4bit   # default vision (faster)
-LLM_LARGE_VISION_MODEL=Qwen3.6-35B-A3B-4bit   # high-accuracy vision
+# Vision model API. This may be the same server as LLM_BASE_URL or a separate
+# OpenAI-compatible vision server. If LLM_VISION_API_KEY is blank, LLM_API_KEY is reused.
+LLM_VISION_BASE_URL=https://your-vision-server/v1
+LLM_VISION_API_KEY=
+LLM_VISION_MODEL=qwen/qwen3.5-9b
 
-# ─── Embedding / Reranker (LM Studio) ───────────────────────────────────────
-# LM Studio serves the embedding/reranker model locally
-EMBEDDING_BASE_URL=http://127.0.0.1:1234/v1   # default LM Studio port
+# Embedding / reranker API. For Docker on macOS / Windows, use host.docker.internal
+# when the model server is running on the host machine.
+EMBEDDING_BASE_URL=http://host.docker.internal:1234/v1
 EMBEDDING_API_KEY=not-needed
 EMBEDDING_MODEL=text-embedding-bge-reranker-v2-m3
 
-# ─── Ports (change only if there are conflicts) ────────────────────────────
-PORT=7676            # Frontend
-BACKEND_PORT=8043    # Backend API
+# Local non-Docker defaults. Docker Compose overrides these inside containers.
+DATABASE_URL=postgresql://hillmantam@localhost:5432/pprfs_vetting
+REDIS_URL=redis://localhost:6379/0
 
-# ─── Stamp recovery (0 = off, 1–2 = extra LLM passes for stamp/chop) ───────
+# Host ports
+FRONTEND_PORT=7676
+BACKEND_PORT=8043
+
+# Results page annotation mode:
+# disabled | number_annotated | number_and_region_annotated
+NEXT_PUBLIC_PAGE_ANNOTATION_MODE=disabled
+
+# Stamp/chop recovery passes. 0=off, 1 or 2=extra LLM passes per page.
 STAMP_RECOVERY_PASSES=1
 ```
 
-**Do not set `DATABASE_URL` or `REDIS_URL`** — the compose file connects them automatically via container names.
+When using Docker Compose, leave `DATABASE_URL` and `REDIS_URL` as-is; `docker-compose.yml` overrides them inside the backend and Celery containers so they connect to the `postgres` and `redis` services.
 
-#### Setting up omlx (LLM — text + vision)
+#### Setting up LLM endpoints
 
-omlx exposes an OpenAI-compatible API. Once your omlx server is running:
+The backend uses OpenAI-compatible APIs for both text and vision calls:
 
-1. Find the base URL (e.g. `https://your-server/v1`) and set it as `LLM_BASE_URL`
-2. Set `LLM_API_KEY` to the access key configured on your omlx instance
-3. Run `curl $LLM_BASE_URL/models -H "Authorization: Bearer $LLM_API_KEY"` to list available model IDs, then copy the exact names into `LLM_TEXT_MODEL`, `LLM_SMALL_VISION_MODEL`, `LLM_LARGE_VISION_MODEL`
+1. Set `LLM_BASE_URL` and `LLM_API_KEY` for the text model server.
+2. Set `LLM_TEXT_MODEL` to the exact text model ID listed by that server.
+3. Set `LLM_VISION_BASE_URL` for the vision model server. This may be the same server as `LLM_BASE_URL`, or a separate server such as LM Studio.
+4. Set `LLM_VISION_API_KEY` only when the vision server needs a different key. If it is blank, the backend reuses `LLM_API_KEY`.
+5. Set `LLM_VISION_MODEL` to the exact vision model ID listed by the vision server.
 
-**Required models on omlx:**
+Useful checks:
 
-| Role | Model ID | Type | Notes |
-|---|---|---|---|
-| Text (reasoning) | `gpt-oss-120b-MXFP4-Q8` | Text | Large instruction model |
-| Vision — default | `Qwen3.6-35B-A3B-4bit` | Vision | Faster, used for most pages |
-| Vision — high accuracy | `Qwen3.6-35B-A3B-4bit` | Vision | Used when **Large Model** toggle is on |
+```bash
+curl "$LLM_BASE_URL/models" -H "Authorization: Bearer $LLM_API_KEY"
+curl "$LLM_VISION_BASE_URL/models" -H "Authorization: Bearer ${LLM_VISION_API_KEY:-$LLM_API_KEY}"
+```
 
-> The small and large vision slots use the same model by default. To use a heavier model for difficult scans, load a larger vision model on your omlx server and update `LLM_LARGE_VISION_MODEL` in `.env`.
+**Required models:**
+
+| Role | Model ID | Notes |
+|---|---|---|
+| Text reasoning | `gpt-oss-120b-MXFP4-Q8` | Used for text-only reasoning tasks |
+| Vision extraction | `qwen/qwen3.5-9b` | Used for page classification, extraction, and stamp recovery |
+| Embedding / reranker | `text-embedding-bge-reranker-v2-m3` | Search in LM Studio as `bge-reranker-v2-m3` |
+
+The current deployment uses one vision model only. The previous `LLM_SMALL_VISION_MODEL`, `LLM_LARGE_VISION_MODEL`, and per-job **Large Model** switch have been removed. Legacy API fields such as `use_large_model` may still be accepted by the backend for compatibility, but extraction always uses `LLM_VISION_MODEL`.
 
 #### Setting up LM Studio (Embeddings / Reranker)
 
 LM Studio runs locally and serves a local OpenAI-compatible API on port **1234** by default.
 
-1. Download [LM Studio](https://lmstudio.ai/) and install it
-2. Search for and download the embedding model: **`bge-reranker-v2-m3`** (or the full ID `text-embedding-bge-reranker-v2-m3`)
-3. Go to **Local Server** tab → load the model → click **Start Server**
-4. The default URL is `http://127.0.0.1:1234/v1` — set this as `EMBEDDING_BASE_URL`
+1. Download [LM Studio](https://lmstudio.ai/) and install it.
+2. Search for and download the embedding model: **`bge-reranker-v2-m3`**.
+3. Go to **Local Server** tab, load the model, then click **Start Server**.
+4. For Docker on macOS / Windows, set `EMBEDDING_BASE_URL=http://host.docker.internal:1234/v1`.
 
-**Required model in LM Studio:**
+On Linux, add this to the `backend` and `celery` services in `docker-compose.yml` if the containers need to reach a host-side model server:
 
-| Role | Model ID | Notes |
-|---|---|---|
-| Embedding / Reranker | `text-embedding-bge-reranker-v2-m3` | Search in LM Studio as `bge-reranker-v2-m3` |
-
-> **Note for Docker on macOS / Windows**: the backend container cannot reach `127.0.0.1` on the host directly. Use `host.docker.internal` instead:
-> ```dotenv
-> EMBEDDING_BASE_URL=http://host.docker.internal:1234/v1
-> ```
-> On Linux add `extra_hosts: ["host.docker.internal:host-gateway"]` to the `backend` and `celery` services in `docker-compose.yml`.
+```yaml
+extra_hosts:
+  - "host.docker.internal:host-gateway"
+```
 
 ### 5. Start all services
 
@@ -110,9 +123,8 @@ LM Studio runs locally and serves a local OpenAI-compatible API on port **1234**
 docker compose up -d
 ```
 
-Docker will pull the images on first run (~1–2 GB total). Subsequent starts are instant.
+Docker pulls the pre-built images on first run. To watch logs:
 
-To watch logs:
 ```bash
 docker compose logs -f
 ```
@@ -124,6 +136,10 @@ docker compose logs -f
 | **Frontend** | http://localhost:7676 |
 | **Backend API** | http://localhost:8043 |
 | **API Docs (Swagger)** | http://localhost:8043/docs |
+
+If you changed `FRONTEND_PORT` or `BACKEND_PORT`, use those host ports in the URLs above.
+
+If users access the app from another machine, the frontend image must be built with an upload API URL that their browser can reach, or the deployment must place the frontend and backend behind a same-origin reverse proxy. A browser on another machine cannot use `http://localhost:8043/api` to reach the Docker host. Because this is a Next.js production image, `NEXT_PUBLIC_UPLOAD_API_URL` and `NEXT_PUBLIC_PAGE_ANNOTATION_MODE` are build-time values for the frontend image.
 
 ### 7. Stop / remove
 
@@ -146,17 +162,48 @@ docker compose up -d
 
 ---
 
+## Publishing Docker Images
+
+From the source repository root, run:
+
+```bash
+./build-and-push.sh
+```
+
+The script defaults to:
+
+| Setting | Default |
+|---|---|
+| Docker Hub user | `vansonhk` |
+| Image tag | `3rd-round` |
+| Platforms | `linux/amd64,linux/arm64` |
+| Frontend upload API URL | `http://localhost:8043/api` |
+| Page annotation mode | `disabled` |
+
+To publish a different tag or frontend upload URL:
+
+```bash
+NEXT_PUBLIC_UPLOAD_API_URL=https://your-dsb-host.example.com/api ./build-and-push.sh 3rd-round
+```
+
+Published images:
+
+```bash
+docker pull vansonhk/dsb-backend:3rd-round
+docker pull vansonhk/dsb-frontend:3rd-round
+```
+
+---
+
 ## Troubleshooting
 
 | Symptom | Fix |
 |---|---|
-| Frontend shows "Cannot connect to backend" | Ensure `BACKEND_PORT` in `.env` matches the exposed port and the backend container is healthy (`docker compose ps`) |
-| Extraction jobs stay Pending | Check the Celery worker logs: `docker compose logs celery` |
-| LLM errors in job output | Verify `LLM_BASE_URL`, `LLM_API_KEY` and model names in `.env` match your server |
-| Port already in use | Change `PORT` or `BACKEND_PORT` in `.env` and re-run `docker compose up -d` |
-| DB connection refused | Run `docker compose ps` — the `postgres` service must be healthy before `backend` starts |
-
----
+| Frontend shows "Cannot connect to backend" | Ensure `BACKEND_PORT` in `.env` matches the exposed port and the backend container is healthy with `docker compose ps`. |
+| Extraction jobs stay Pending | Check the Celery worker logs with `docker compose logs celery`. |
+| LLM errors in job output | Verify `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_VISION_BASE_URL`, `LLM_VISION_API_KEY`, and model names in `.env`. |
+| Port already in use | Change `FRONTEND_PORT`, `BACKEND_PORT`, `POSTGRES_PORT`, or `REDIS_PORT` in `.env` and re-run `docker compose up -d`. |
+| DB connection refused | Run `docker compose ps`; the `postgres` service must be healthy before backend starts. |
 
 ---
 
@@ -181,8 +228,7 @@ DSB-POC/
 │   │   ├── jobs/             # Monitor extraction jobs
 │   │   └── results/[id]/     # View structured extraction results
 │   └── lib/api.ts            # Typed API client
-├── docker-compose.yml        # PostgreSQL + Redis
-├── start.sh                  # One-command startup
+├── docker-compose.yml        # PostgreSQL, Redis, backend, Celery, frontend
 └── .env                      # LLM / DB / port config
 ```
 
@@ -195,7 +241,7 @@ DSB-POC/
 | Job Queue | Celery + Redis |
 | Database | PostgreSQL |
 | OCR/Extraction | LLM Vision via OpenAI-compatible API |
-| PDF→Image | pdf2image (poppler) — bundled in Docker image |
+| PDF to Image | pdf2image (poppler) bundled in Docker image |
 
 ## Extraction Fields
 
@@ -212,7 +258,7 @@ For each trade document PDF, the system extracts:
 - **Port of Loading** (name, city, country)
 - **Port of Discharge** (name, city, country)
 - **Via ports** (intermediate transshipment ports)
-- **Vessel Name** — extracted separately from voyage number (e.g., `JAZAN` from `JAZAN / 1644`)
+- **Vessel Name** — extracted separately from voyage number, for example `JAZAN` from `JAZAN / 1644`
 - **Voyage Number**
 - **Shipping Mode** (SEA, AIR, etc.)
 
@@ -222,15 +268,15 @@ For each trade document PDF, the system extracts:
 ## Models
 
 Configure in `.env`:
-- `LLM_SMALL_VISION_MODEL` — Default (faster, lower cost)
-- `LLM_LARGE_VISION_MODEL` — Optional for complex/degraded scans
 
-Toggle per-job in the UI via the **Large Model** switch.
+- `LLM_VISION_MODEL` — single vision extraction model, default `qwen/qwen3.5-9b`
+
+All jobs use this one configured vision model.
 
 ## Output Formats
 
 - **UI Summary**: Structured, validated view per field type
-- **JSON Download**: Full merged result + page-level details
+- **JSON Download**: Full merged result plus page-level details
 - **CSV Download**: Flat table suitable for downstream systems
 
 ## Supported Document Types

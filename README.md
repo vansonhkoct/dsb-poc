@@ -47,7 +47,7 @@ Open `.env` in any text editor and fill in the required values:
 ```dotenv
 # LLM API for text-only tasks
 LLM_BASE_URL=https://your-omlx-server/v1
-LLM_API_KEY=your-omlx-api-key
+LLM_API_KEY=replace-me
 LLM_TEXT_MODEL=gpt-oss-120b-MXFP4-Q8
 
 # Vision model API. This may be the same server as LLM_BASE_URL or a separate
@@ -67,8 +67,7 @@ DATABASE_URL=postgresql://hillmantam@localhost:5432/pprfs_vetting
 REDIS_URL=redis://localhost:6379/0
 
 # Host ports
-FRONTEND_PORT=7676
-BACKEND_PORT=8043
+APP_PORT=7676
 
 # Results page annotation mode:
 # disabled | number_annotated | number_and_region_annotated

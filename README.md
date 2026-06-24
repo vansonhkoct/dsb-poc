@@ -73,11 +73,17 @@ APP_PORT=7676
 # disabled | number_annotated | number_and_region_annotated
 NEXT_PUBLIC_PAGE_ANNOTATION_MODE=disabled
 
+# Results page details default layout:
+# list | slideshow
+NEXT_PUBLIC_PAGE_DETAILS_DEFAULT_LAYOUT=slideshow
+
 # Stamp/chop recovery passes. 0=off, 1 or 2=extra LLM passes per page.
 STAMP_RECOVERY_PASSES=1
 ```
 
 When using Docker Compose, leave `DATABASE_URL` and `REDIS_URL` as-is; `docker-compose.yml` overrides them inside the backend and Celery containers so they connect to the `postgres` and `redis` services.
+
+`APP_PORT` is the only host port exposed by the bundled Docker Compose setup. Nginx serves the frontend and proxies backend routes such as `/api`, `/docs`, `/openapi.json`, and `/uploads` through this same port.
 
 #### Setting up LLM endpoints
 
@@ -139,12 +145,12 @@ docker compose logs -f
 | Service | URL |
 |---|---|
 | **Frontend** | http://localhost:7676 |
-| **Backend API** | http://localhost:8043 |
-| **API Docs (Swagger)** | http://localhost:8043/docs |
+| **Backend API** | http://localhost:7676/api |
+| **API Docs (Swagger)** | http://localhost:7676/docs |
 
-If you changed `FRONTEND_PORT` or `BACKEND_PORT`, use those host ports in the URLs above.
+If you changed `APP_PORT`, replace `7676` in the URLs above with your configured host port.
 
-If users access the app from another machine, the frontend image must be built with an upload API URL that their browser can reach, or the deployment must place the frontend and backend behind a same-origin reverse proxy. A browser on another machine cannot use `http://localhost:8043/api` to reach the Docker host. Because this is a Next.js production image, `NEXT_PUBLIC_UPLOAD_API_URL` and `NEXT_PUBLIC_PAGE_ANNOTATION_MODE` are build-time values for the frontend image.
+If users access the app from another machine, give them the Docker host's IP address or DNS name with `APP_PORT`, for example `http://192.168.1.20:7676`. The bundled Nginx gateway keeps frontend and backend traffic on the same origin, so browser requests to `/api` are proxied to the backend container.
 
 ### 7. Stop / remove
 
@@ -182,14 +188,19 @@ The script defaults to:
 | Docker Hub user | `vansonhk` |
 | Image tag | `3rd-round` |
 | Platforms | `linux/amd64,linux/arm64` |
-| Frontend upload API URL | `http://localhost:8043/api` |
+| Frontend upload API URL | `/api` |
 | Page annotation mode | `disabled` |
+| Page details default layout | `slideshow` |
 
-To publish a different tag or frontend upload URL:
+To publish a different tag or frontend defaults:
 
 ```bash
-NEXT_PUBLIC_UPLOAD_API_URL=https://your-dsb-host.example.com/api ./build-and-push.sh 3rd-round
+NEXT_PUBLIC_PAGE_ANNOTATION_MODE=number_annotated \
+NEXT_PUBLIC_PAGE_DETAILS_DEFAULT_LAYOUT=list \
+./build-and-push.sh your-tag
 ```
+
+The Docker Compose bundle uses the same-origin `/api` upload URL through Nginx. Use an absolute `NEXT_PUBLIC_UPLOAD_API_URL` only when deploying the frontend separately from the bundled gateway/backend.
 
 Published images:
 
@@ -204,10 +215,10 @@ docker pull vansonhk/dsb-frontend:3rd-round
 
 | Symptom | Fix |
 |---|---|
-| Frontend shows "Cannot connect to backend" | Ensure `BACKEND_PORT` in `.env` matches the exposed port and the backend container is healthy with `docker compose ps`. |
+| Frontend shows "Cannot connect to backend" | Ensure the gateway, backend, and frontend containers are healthy with `docker compose ps`, then check `docker compose logs gateway backend frontend`. |
 | Extraction jobs stay Pending | Check the Celery worker logs with `docker compose logs celery`. |
 | LLM errors in job output | Verify `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_VISION_BASE_URL`, `LLM_VISION_API_KEY`, and model names in `.env`. |
-| Port already in use | Change `FRONTEND_PORT`, `BACKEND_PORT`, `POSTGRES_PORT`, or `REDIS_PORT` in `.env` and re-run `docker compose up -d`. |
+| Port already in use | Change `APP_PORT` in `.env` and re-run `docker compose up -d`. |
 | DB connection refused | Run `docker compose ps`; the `postgres` service must be healthy before backend starts. |
 | Repeat install fails with `container name "/dsb_redis" is already in use` or similar | Remove stale stopped containers from an older local run: `docker rm dsb_frontend dsb_backend dsb_celery dsb_redis dsb_postgres`, then run `docker compose up -d` again. This does not delete Docker volumes or uploaded data. |
 

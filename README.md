@@ -27,6 +27,12 @@ mkdir dsb-poc && cd dsb-poc
 # docker-compose.yml
 curl -O https://raw.githubusercontent.com/vansonhkoct/dsb-poc/main/docker-compose.yml
 
+# gateway/nginx.conf
+mkdir gateway
+cd gateway
+curl -O https://raw.githubusercontent.com/vansonhkoct/dsb-poc/main/gateway/nginx.conf
+cd ..
+
 # .env template
 curl -O https://raw.githubusercontent.com/vansonhkoct/dsb-poc/main/.env.example
 cp .env.example .env
